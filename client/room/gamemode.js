@@ -43,6 +43,7 @@ const MockModeStateValue = "MockMode";
 const EndOfMatchStateValue = "EndOfMatch";
 
 const immortalityTimerName = "immortality"; // имя таймера, используемого в контексте игрока, для его бессмертия
+const spawnTimerName = "spawn";
 const KILLS_PROP_NAME = "Kills";
 const SCORES_PROP_NAME = "Scores";
 
@@ -96,12 +97,22 @@ Ui.GetContext().TeamProp1.Value = { Team: "Blue", Prop: SCORES_PROP_NAME };
 Ui.GetContext().TeamProp2.Value = { Team: "Red", Prop: SCORES_PROP_NAME };
 
 // при запросе смены команды игрока - добавляем его в запрашиваемую команду
-Teams.OnRequestJoinTeam.Add(function (player, team) { team.Add(player); });
+Teams.OnRequestJoinTeam.Add(function (player, team) {
+	if (player.Team !== null) return;
+	let request = team;
+	if (redTeam.Count > blueTeam.Count) {
+		request = blueTeam;
+	} else if (blueTeam.Count > redTeam.Count) {
+		request = redTeam;
+	}
+
+	request.Add(player);
+});
 // при запросе спавна игрока - спавним его
-Teams.OnPlayerChangeTeam.Add(function (player) { player.Spawns.Spawn() });
+Teams.OnPlayerChangeTeam.Add(function (player) { player.Spawns.Spawn(); });
 
 // бессмертие после респавна
-Spawns.GetContext().OnSpawn.Add(function (player) {
+Spawns.OnSpawn.Add(function (player) {
 	if (stateProp.Value == MockModeStateValue) {
 		player.Properties.Immortality.Value = false;
 		return;
@@ -110,22 +121,31 @@ Spawns.GetContext().OnSpawn.Add(function (player) {
 	player.Timers.Get(immortalityTimerName).Restart(3);
 });
 Timers.OnPlayerTimer.Add(function (timer) {
-	if (timer.Id != immortalityTimerName) return;
-	timer.Player.Properties.Immortality.Value = false;
+	const player = timer.Player;
+	const id = timer.Id;
+	if (id == immortalityTimerName) player.Properties.Immortality.Value = false;
+	if (id == spawnTimerName) player.Spawns.Enable = true;
 });
 
 // обработчик спавнов
 Spawns.OnSpawn.Add(function (player) {
-	if (stateProp.Value == MockModeStateValue) return;
+	player.Spawns.Enable = false;
+	player.Timers.Get(spawnTimerName).Restart(2);
+
 	++player.Properties.Spawns.Value;
+	player.Damage.DamageIn.Value = true;
 });
 // обработчик смертей
 Damage.OnDeath.Add(function (player) {
+	player.Spawns.Enable = false;
+	player.Timers.Get(spawnTimerName).Restart(1);
+
 	if (stateProp.Value == MockModeStateValue) {
 		Spawns.GetContext(player).Spawn();
 		return;
 	}
 	++player.Properties.Deaths.Value;
+	player.Damage.DamageIn.Value = false;
 });
 
 // детальный отчёт по убийству: начисляем очки за убийство и ассисты по ТЗ
@@ -370,4 +390,3 @@ function SpawnTeams() {
 }
 
 scores_timer.RestartLoop(TIMER_SCORES_INTERVAL);
-
